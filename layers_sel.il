@@ -29,7 +29,6 @@ procedure(JL_getFormPath()
   )
 )
 
-JL_tempFile = JL_getFormPath()
 ;;JL_tempFile     = strcat(getWorkingDir() "/jl_layers.form")
 
 procedure(JL_getSafeName(lName)
@@ -170,6 +169,7 @@ procedure(JL_Callback(form)
 ;; 4. Main Entry
 procedure(JL_showEtchPalette(@key (force nil))
   let((etchClass layers)
+    JL_tempFile = JL_getFormPath()
     etchClass = axlGetParam("paramLayerGroup:ETCH")
     if(etchClass then
       layers = mapcar(lambda((s) list(s)) etchClass->groupMembers)
