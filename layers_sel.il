@@ -1,11 +1,12 @@
 ;;==============================================================================
-;; layers_sel.il 
+;; layers_sel.il
 ;; 左键点层名：切换显示/设为当前层
 ;; 左键点色块：弹出颜色选择框并修改该层颜色
 ;;==============================================================================
 
 JL_paletteForm  = nil
 JL_layerButtons = nil
+JL_activeLayer  = nil  ;; 当前激活的 ETCH 层名（不含 ETCH/ 前缀）
 
 procedure(JL_getSafeName(lName)
   let((s)
@@ -34,7 +35,8 @@ procedure(JL_BuildCompactFormText(layers)
 
     colGap = 2
     btnH   = 2
-    rowGap = 2
+    rowGap = fix((formHeight - 2 * btnH) / 3)
+    rowGap = max(2 rowGap)
     btnW   = fix((formWidth - 10 - ((numLayers - 1) * colGap)) / numLayers)
     colW   = max(3 min(btnW 6))
 
@@ -50,7 +52,7 @@ procedure(JL_BuildCompactFormText(layers)
     foreach(ly layers
       safeName = JL_getSafeName(car(ly))
       x = 5 + idx * (btnW + colGap)
-      y = 5
+      y = rowGap
 
       txt = strcat(txt sprintf(nil
         "\tFIELD JL_btn_%s\n\tFLOC %d %d\n\tMENUBUTTON \"%s\" %d %d\n\tENDFIELD\n"
@@ -65,7 +67,7 @@ procedure(JL_BuildCompactFormText(layers)
       idx++
     )
 
-    baseY = btnH + rowGap + 5
+    baseY = rowGap + btnH + rowGap
     bw = fix((formWidth - 20 - 15) / 4)
 
     txt = strcat(txt sprintf(nil
@@ -99,7 +101,11 @@ procedure(JL_RefreshLayerDisplay(form lName)
     colField = strcat("JL_col_" safeName)
 
     isVis = axlIsVisibleLayer(JL_LayerPath(lName))
-    axlFormSetField(form btnField lName)
+    let((isActive btnLabel)
+      isActive = (JL_activeLayer == lName)
+      btnLabel = if(isActive strcat("* " lName) lName)
+      axlFormSetField(form btnField btnLabel)
+    )
 
     layerObj = axlLayerGet(JL_LayerPath(lName))
     lColor = if(layerObj && numberp(layerObj->color) layerObj->color 0)
@@ -140,11 +146,15 @@ procedure(JL_SetLayerColor(form lName)
 procedure(JL_ToggleLayer(form lName)
   if(axlIsVisibleLayer(JL_LayerPath(lName)) then
     axlVisibleLayer(JL_LayerPath(lName) nil)
+    JL_RefreshLayerDisplay(form lName)
   else
     axlSetActiveLayer(JL_LayerPath(lName))
     axlVisibleLayer(JL_LayerPath(lName) t)
+    JL_activeLayer = lName
+    foreach(m JL_layerButtons
+      JL_RefreshLayerDisplay(form car(m))
+    )
   )
-  JL_RefreshLayerDisplay(form lName)
   axlFlushDisplay()
 )
 
@@ -205,6 +215,23 @@ procedure(JL_showEtchPalette(@key (force nil))
     if(etchClass then
       layers = mapcar(lambda((s) list(s)) etchClass->groupMembers)
       JL_layerButtons = layers
+      let((dispParam rawActive guessed)
+        dispParam  = axlGetParam("paramDisplay")
+        rawActive  = if(dispParam && stringp(dispParam->activeLayer)
+                        dispParam->activeLayer "")
+        guessed    = nil
+        when(rexMatchp("^[Ee][Tt][Cc][Hh]/" rawActive)
+          let((sub)
+            sub = substring(rawActive 6 strlen(rawActive))   ;; 去掉 "ETCH/"
+            foreach(m etchClass->groupMembers
+              when(upperCase(m) == upperCase(sub)
+                guessed = m
+              )
+            )
+          )
+        )
+        JL_activeLayer = if(guessed guessed car(etchClass->groupMembers))
+      )
       formText = JL_BuildCompactFormText(layers)
 
       when(JL_paletteForm && axlIsFormType(JL_paletteForm)
