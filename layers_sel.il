@@ -1,164 +1,197 @@
 ;;==============================================================================
-;; layers.il Etch层选择
+;; layers_sel_nofrm.il - 不依赖外部 .form 文件的 Etch 层选择器
+;; 左键点层名：切换显示/设为当前层
+;; 左键点色块：弹出颜色选择框并修改该层颜色
 ;;==============================================================================
 
 JL_paletteForm  = nil
 JL_layerButtons = nil
-
-procedure(JL_getFormPath()
-  let((pcbPath parts dir)
-    pcbPath = axlCurrentDesign()
-    if(pcbPath && pcbPath != "" then
-        ;; 将路径按斜杠拆分
-        parts = parseString(pcbPath "/\\")
-        ;; 移除最后一个元素（文件名），重新拼接目录
-        if(length(parts) > 1 then
-            dir = buildString(reverse(cdr(reverse(parts))) "/")
-            ;; 处理 Windows 盘符开头的情况
-            if(rexMatchp("^[A-Z]:" car(parts)) then
-                strcat(dir "/jl_layers.form")
-            else
-                strcat("/" dir "/jl_layers.form")
-            )
-        else
-            strcat(getWorkingDir() "/jl_layers.form")
-        )
-    else
-        strcat(getWorkingDir() "/jl_layers.form")
-    )
-  )
-)
-
-;;JL_tempFile     = strcat(getWorkingDir() "/jl_layers.form")
 
 procedure(JL_getSafeName(lName)
   let((s)
     s = lName
     while(rexMatchp(" " s) s = rexReplace(s "_" 0))
     while(rexMatchp("/" s) s = rexReplace(s "_" 0))
+    while(rexMatchp("-" s) s = rexReplace(s "_" 0))
+    while(rexMatchp("\\." s) s = rexReplace(s "_" 0))
     s
   )
 )
 
-;; 1. Form Writer: 确保色块与按钮宽度 FSIZE 绝对对齐
-procedure(JL_WriteCompactForm(fileName layers)
-  let((p numLayers idx btnW btnH maxCols x y safeName colGap rowGap formWidth formHeight)
+procedure(JL_LayerPath(lName)
+  strcat("ETCH/" lName)
+)
+
+;; 生成 inline FORM 文本。
+;; 每个非空行前都加一个 TAB。
+procedure(JL_BuildCompactFormText(layers)
+  let((numLayers idx btnW btnH colW maxCols x y safeName colGap rowGap formWidth formHeight txt bw baseY)
     numLayers = length(layers)
     maxCols = numLayers
-    
-    ;; 统一计算宽度，确保两者使用同一个变量
-    formWidth  = numLayers*20+10
-    formHeight = 20 
+
+    formWidth  = max(70 numLayers * 20 + 10)
+    formHeight = 20
 
     colGap = 2
-    btnH = 2 
+    btnH   = 2
     rowGap = 2
-    btnW = fix( (formWidth-10 - ((numLayers-1)*colGap)) / numLayers)
-    
-    
-    p = outfile(fileName "w")
-    when(p
-      fprintf(p "FILE_TYPE=FORM_DEFN VERSION=2\nFORM\nFIXED\n")
-      fprintf(p "PORT %d %d\nHEADER \"Layer Selection\"\nTILE\n" formWidth formHeight)
+    btnW   = fix((formWidth - 10 - ((numLayers - 1) * colGap)) / numLayers)
+    colW   = max(3 min(btnW 6))
 
-      idx = 0
-      foreach(ly layers
-        safeName = JL_getSafeName(car(ly))
-        x = 5 + idx * (btnW + colGap)
-        y = 5
-        fprintf(p "FIELD JL_btn_%s\nFLOC %d %d\nMENUBUTTON \"%s\" %d %d\nENDFIELD\n" 
-                safeName x y car(ly) btnW btnH)
-        ;; 绘制色块：宽度设为 btnW，确保与按钮一致
-        fprintf(p "FIELD JL_col_%s\nFLOC %d %d\nCOLOR 0\nFSIZE %d 1\nENDFIELD\n" 
-                safeName x y 1)
-                
+    txt = ""
+    txt = strcat(txt "\tFILE_TYPE=FORM_DEFN VERSION=2\n")
+    txt = strcat(txt "\tFORM\n")
+    txt = strcat(txt "\tFIXED\n")
+    txt = strcat(txt sprintf(nil "\tPORT %d %d\n" formWidth formHeight))
+    txt = strcat(txt "\tHEADER \"Layer Selection\"\n")
+    txt = strcat(txt "\tTILE\n")
 
-        idx++
-      )
+    idx = 0
+    foreach(ly layers
+      safeName = JL_getSafeName(car(ly))
+      x = 5 + idx * (btnW + colGap)
+      y = 5
 
-      let((baseY bw)
-        baseY = (btnH + rowGap + 5)
-        bw = fix( (formWidth - 20 - 15) / 4 )
-        fprintf(p "FIELD JL_allOn\nFLOC 10 %d\nMENUBUTTON \"ALL ON\" %d 1\nENDFIELD\n" baseY bw)
-        fprintf(p "FIELD JL_allOff\nFLOC %d %d\nMENUBUTTON \"ALL OFF\" %d 1\nENDFIELD\n" (15 + bw) baseY bw)
-        fprintf(p "FIELD JL_sync\nFLOC %d %d\nMENUBUTTON \"SYNC\" %d 1\nENDFIELD\n" (20 + 2*bw) baseY bw)
-        fprintf(p "FIELD JL_close\nFLOC %d %d\nMENUBUTTON \"EXIT\" %d 1\nENDFIELD\n" (25 + 3*bw) baseY bw)
-      )
-      fprintf(p "ENDTILE\nENDFORM\n")
-      close(p)
-      t
+      txt = strcat(txt sprintf(nil
+        "\tFIELD JL_btn_%s\n\tFLOC %d %d\n\tMENUBUTTON \"%s\" %d %d\n\tENDFIELD\n"
+        safeName x y car(ly) btnW btnH
+      ))
+
+      txt = strcat(txt sprintf(nil
+        "\tFIELD JL_col_%s\n\tFLOC %d %d\n\tCOLOR 0\n\tFSIZE %d 1\n\tENDFIELD\n"
+        safeName x y colW
+      ))
+
+      idx++
     )
+
+    baseY = btnH + rowGap + 5
+    bw = fix((formWidth - 20 - 15) / 4)
+
+    txt = strcat(txt sprintf(nil
+      "\tFIELD JL_allOn\n\tFLOC 10 %d\n\tMENUBUTTON \"ALL ON\" %d 1\n\tENDFIELD\n"
+      baseY bw
+    ))
+    txt = strcat(txt sprintf(nil
+      "\tFIELD JL_allOff\n\tFLOC %d %d\n\tMENUBUTTON \"ALL OFF\" %d 1\n\tENDFIELD\n"
+      (15 + bw) baseY bw
+    ))
+    txt = strcat(txt sprintf(nil
+      "\tFIELD JL_sync\n\tFLOC %d %d\n\tMENUBUTTON \"SYNC\" %d 1\n\tENDFIELD\n"
+      (20 + 2 * bw) baseY bw
+    ))
+    txt = strcat(txt sprintf(nil
+      "\tFIELD JL_close\n\tFLOC %d %d\n\tMENUBUTTON \"EXIT\" %d 1\n\tENDFIELD\n"
+      (25 + 3 * bw) baseY bw
+    ))
+
+    txt = strcat(txt "\tENDTILE\n")
+    txt = strcat(txt "\tENDFORM\n")
+
+    txt
   )
 )
 
-;; 2. 刷新函数：增加颜色开关逻辑，取消星号
 procedure(JL_RefreshLayerDisplay(form lName)
-  let((safeName btnField colField isVis lColor layerObj)
+  let((safeName btnField colField isVis lColor layerObj dispColor)
     safeName = JL_getSafeName(lName)
     btnField = strcat("JL_btn_" safeName)
     colField = strcat("JL_col_" safeName)
-    
-    ;; 检查可见性
-    isVis = axlIsVisibleLayer(strcat("ETCH/" lName))
-    
-    ;; --- 需求 3: 取消星号，只保持原名 ---
+
+    isVis = axlIsVisibleLayer(JL_LayerPath(lName))
     axlFormSetField(form btnField lName)
-    
-    ;; --- 需求 1: 颜色跟随 ON/OFF 状态 ---
-    if(isVis then
-        ;; 如果层是 ON，显示真实颜色
-        layerObj = axlLayerGet(strcat("ETCH/" lName))
-        lColor = if(layerObj layerObj->color 0)
-    else
-        ;; 如果层是 OFF，将色块设为黑色 (索引 0)
-        lColor = 0
-    )
-    
-    ;; 动态设置色块颜色
-    axlFormSetField(form colField lColor)
+
+    layerObj = axlLayerGet(JL_LayerPath(lName))
+    lColor = if(layerObj && numberp(layerObj->color) layerObj->color 0)
+    dispColor = if(isVis lColor 0)
+
+    ;; 先切到黑色，再切回目标色，尽量触发 COLOR 字段重绘。
+    axlFormSetField(form colField 0)
+    axlFormSetField(form colField dispColor)
+    axlFlushDisplay()
   )
 )
 
-;; 3. Callback 逻辑
+procedure(JL_SetLayerColor(form lName)
+  let((layerObj colorNum oldRgb newRgb)
+    if(axlIsVisibleLayer(JL_LayerPath(lName)) then
+      layerObj = axlLayerGet(JL_LayerPath(lName))
+      when(layerObj
+        colorNum = if(numberp(layerObj->color) layerObj->color 1)
+        oldRgb = axlColorGet(colorNum)
+        when(!oldRgb
+          oldRgb = '(255 255 255)
+        )
+        newRgb = axlUIColorDialog(nil oldRgb)
+        when(listp(newRgb)
+          axlColorSet(colorNum newRgb)
+          axlVisibleUpdate(t)
+          ;; 不重建 palette，直接刷新这个色块。
+          JL_RefreshLayerDisplay(form lName)
+          axlFlushDisplay()
+        )
+      )
+    else
+      nil
+    )
+  )
+)
+
+procedure(JL_ToggleLayer(form lName)
+  if(axlIsVisibleLayer(JL_LayerPath(lName)) then
+    axlVisibleLayer(JL_LayerPath(lName) nil)
+  else
+    axlSetActiveLayer(JL_LayerPath(lName))
+    axlVisibleLayer(JL_LayerPath(lName) t)
+  )
+  JL_RefreshLayerDisplay(form lName)
+  axlFlushDisplay()
+)
+
 procedure(JL_Callback(form)
   case(form->curField
-    ("JL_close" axlFormClose(form) JL_paletteForm = nil)
-    ("JL_sync" JL_showEtchPalette(?force t))
+    ("JL_close"
+      axlFormClose(form)
+      JL_paletteForm = nil
+    )
+    ("JL_sync"
+      JL_showEtchPalette(?force t)
+    )
     ("JL_allOn"
-      let((etch) etch = axlGetParam("paramLayerGroup:ETCH")
-      when(etch 
-        foreach(m etch->groupMembers 
-          axlVisibleLayer(strcat("ETCH/" m) t)
-          JL_RefreshLayerDisplay(form m)
+      let((etch)
+        etch = axlGetParam("paramLayerGroup:ETCH")
+        when(etch
+          foreach(m etch->groupMembers
+            axlVisibleLayer(JL_LayerPath(m) t)
+            JL_RefreshLayerDisplay(form m)
+          )
+          axlFlushDisplay()
         )
-        axlFlushDisplay()
-      ))
+      )
     )
     ("JL_allOff"
-      let((etch) etch = axlGetParam("paramLayerGroup:ETCH")
-      when(etch 
-        foreach(m etch->groupMembers 
-          axlVisibleLayer(strcat("ETCH/" m) nil)
-          JL_RefreshLayerDisplay(form m)
+      let((etch)
+        etch = axlGetParam("paramLayerGroup:ETCH")
+        when(etch
+          foreach(m etch->groupMembers
+            axlVisibleLayer(JL_LayerPath(m) nil)
+            JL_RefreshLayerDisplay(form m)
+          )
+          axlFlushDisplay()
         )
-        axlFlushDisplay()
-      ))
+      )
     )
     (t
       foreach(m JL_layerButtons
-        let((lName btnField)
+        let((lName btnField colField)
           lName = car(m)
           btnField = strcat("JL_btn_" JL_getSafeName(lName))
+          colField = strcat("JL_col_" JL_getSafeName(lName))
           when(btnField == form->curField
-            ;; 点击即切换
-            if(axlIsVisibleLayer(strcat("ETCH/" lName)) then
-              axlVisibleLayer(strcat("ETCH/" lName) nil)
-            else
-              axlSetActiveLayer(strcat("ETCH/" lName))
-              axlVisibleLayer(strcat("ETCH/" lName) t)
-            )
-            JL_RefreshLayerDisplay(form lName)
-            axlFlushDisplay()
+            JL_ToggleLayer(form lName)
+          )
+          when(colField == form->curField
+            JL_SetLayerColor(form lName)
           )
         )
       )
@@ -166,31 +199,33 @@ procedure(JL_Callback(form)
   )
 )
 
-;; 4. Main Entry
 procedure(JL_showEtchPalette(@key (force nil))
-  let((etchClass layers)
-    JL_tempFile = JL_getFormPath()
+  let((etchClass layers formText)
     etchClass = axlGetParam("paramLayerGroup:ETCH")
     if(etchClass then
       layers = mapcar(lambda((s) list(s)) etchClass->groupMembers)
       JL_layerButtons = layers
-      
-      when(force || !isFile(JL_tempFile)
-          JL_WriteCompactForm(JL_tempFile layers)
-          printf("Creating form file: %s\n" JL_tempFile)
+      formText = JL_BuildCompactFormText(layers)
+
+      when(JL_paletteForm && axlIsFormType(JL_paletteForm)
+        errset(axlFormClose(JL_paletteForm) nil)
       )
 
-      ;; 创建并显示表单
-      when(isFile(JL_tempFile)
-        when(JL_paletteForm && axlIsFormType(JL_paletteForm)
-          errset(axlFormClose(JL_paletteForm) nil)
+      JL_paletteForm = axlFormCreate(
+        'JL
+        list("jl_layers_inline" formText)
+        '(shared)
+        'JL_Callback
+        t
+      )
+
+      when(JL_paletteForm
+        axlFormDisplay(JL_paletteForm)
+        foreach(m layers
+          JL_RefreshLayerDisplay(JL_paletteForm car(m))
         )
-        JL_paletteForm = axlFormCreate('JL JL_tempFile '(shared) 'JL_Callback t)
-        when(JL_paletteForm 
-            axlFormDisplay(JL_paletteForm)
-            foreach(m layers JL_RefreshLayerDisplay(JL_paletteForm car(m)))
-        )
-      )    else
+      )
+    else
       printf("No ETCH layers detected.\n")
     )
   )
